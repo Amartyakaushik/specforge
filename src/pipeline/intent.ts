@@ -32,7 +32,9 @@ Rules:
 - Always identify target user types (admin, user, etc.)
 - Document ANY assumptions you make
 - Flag ambiguities (conflicting requirements, unclear scope)
-- Be thorough: infer implied features (e.g. "CRM" implies contacts, deals, pipeline)
+- Infer implied features (e.g. "CRM" implies contacts, deals)
+- MAX 8 features. Pick the most important ones.
+- Keep descriptions SHORT (under 10 words each)
 - Output ONLY valid JSON. No explanations.`;
 
 export interface IntentResult {
