@@ -1,6 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Play,
+  Code,
+  FileSearch,
+  Layers,
+  ShieldCheck,
+  Wrench,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  AlertCircle,
+  Info,
+  CheckCircle,
+  XCircle,
+} from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface Props {
   result: {
@@ -8,230 +31,497 @@ interface Props {
     design: unknown;
     appConfig: unknown;
     appForgeConfig?: unknown;
-    validationIssues: Array<{ severity: string; layer: string; message: string; path?: string; suggestion?: string }>;
-    repairActions: Array<{ action: string; description: string; applied: boolean; layer: string }>;
+    validationIssues: Array<{
+      severity: string;
+      layer: string;
+      message: string;
+      path?: string;
+      suggestion?: string;
+    }>;
+    repairActions: Array<{
+      action: string;
+      description: string;
+      applied: boolean;
+      layer: string;
+    }>;
     error: string | null;
   };
 }
 
-type Tab = "runtime" | "config" | "intent" | "design" | "validation" | "repairs";
+function syntaxHighlight(json: string): React.ReactNode[] {
+  const lines = json.split("\n");
+  return lines.map((line, lineIndex) => {
+    const parts: React.ReactNode[] = [];
+    let remaining = line;
+    let keyIndex = 0;
 
-export function OutputViewer({ result }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("runtime");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [copied, setCopied] = useState<string | null>(null);
+    while (remaining.length > 0) {
+      // Match key (quoted string followed by colon)
+      const keyMatch = remaining.match(/^(\s*)"([^"]*)"(\s*:)/);
+      if (keyMatch) {
+        parts.push(<span key={`ws-${lineIndex}-${keyIndex}`}>{keyMatch[1]}</span>);
+        parts.push(
+          <span key={`k-${lineIndex}-${keyIndex}`} className="text-blue-400">
+            &quot;{keyMatch[2]}&quot;
+          </span>
+        );
+        parts.push(<span key={`c-${lineIndex}-${keyIndex}`}>{keyMatch[3]}</span>);
+        remaining = remaining.slice(keyMatch[0].length);
+        keyIndex++;
+        continue;
+      }
 
-  const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: "runtime", label: "Runtime Config" },
-    { id: "config", label: "Raw Config" },
-    { id: "intent", label: "Intent" },
-    { id: "design", label: "Design" },
-    {
-      id: "validation",
-      label: "Validation",
-      badge: result.validationIssues.length,
-    },
-    {
-      id: "repairs",
-      label: "Repairs",
-      badge: result.repairActions.length,
-    },
-  ];
+      // Match string value
+      const stringMatch = remaining.match(/^(\s*)"([^"]*)"(,?\s*)/);
+      if (stringMatch) {
+        parts.push(<span key={`ws-${lineIndex}-${keyIndex}`}>{stringMatch[1]}</span>);
+        parts.push(
+          <span key={`s-${lineIndex}-${keyIndex}`} className="text-green-400">
+            &quot;{stringMatch[2]}&quot;
+          </span>
+        );
+        parts.push(<span key={`t-${lineIndex}-${keyIndex}`}>{stringMatch[3]}</span>);
+        remaining = remaining.slice(stringMatch[0].length);
+        keyIndex++;
+        continue;
+      }
 
-  const toggleSection = (key: string) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+      // Match number
+      const numberMatch = remaining.match(/^(\s*)(-?\d+\.?\d*)(,?\s*)/);
+      if (numberMatch) {
+        parts.push(<span key={`ws-${lineIndex}-${keyIndex}`}>{numberMatch[1]}</span>);
+        parts.push(
+          <span key={`n-${lineIndex}-${keyIndex}`} className="text-amber-400">
+            {numberMatch[2]}
+          </span>
+        );
+        parts.push(<span key={`t-${lineIndex}-${keyIndex}`}>{numberMatch[3]}</span>);
+        remaining = remaining.slice(numberMatch[0].length);
+        keyIndex++;
+        continue;
+      }
 
-  const copyJSON = (data: unknown, label: string) => {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
-  };
+      // Match boolean/null
+      const boolMatch = remaining.match(/^(\s*)(true|false|null)(,?\s*)/);
+      if (boolMatch) {
+        parts.push(<span key={`ws-${lineIndex}-${keyIndex}`}>{boolMatch[1]}</span>);
+        parts.push(
+          <span key={`b-${lineIndex}-${keyIndex}`} className="text-purple-400">
+            {boolMatch[2]}
+          </span>
+        );
+        parts.push(<span key={`t-${lineIndex}-${keyIndex}`}>{boolMatch[3]}</span>);
+        remaining = remaining.slice(boolMatch[0].length);
+        keyIndex++;
+        continue;
+      }
 
-  const renderJSON = (data: unknown, label: string) => {
-    const isOpen = !collapsed[label];
+      // No match -- push rest as plain text and break
+      parts.push(
+        <span key={`r-${lineIndex}-${keyIndex}`} className="text-slate-300">
+          {remaining}
+        </span>
+      );
+      break;
+    }
+
     return (
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 bg-slate-50">
-          <button
-            onClick={() => toggleSection(label)}
-            className="flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-900"
-          >
-            <span>{label}</span>
-            <span className="text-slate-400">{isOpen ? "▾" : "▸"}</span>
-          </button>
-          <button
-            onClick={() => copyJSON(data, label)}
-            className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-              copied === label
-                ? "bg-green-100 text-green-700"
-                : "bg-slate-200 text-slate-600 hover:bg-slate-300"
-            }`}
-          >
-            {copied === label ? "Copied!" : "Copy"}
-          </button>
-        </div>
-        {isOpen && (
-          <pre className="p-4 text-xs font-mono overflow-x-auto bg-slate-950 text-green-400 max-h-[500px] overflow-y-auto">
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        )}
-      </div>
+      <span key={`line-${lineIndex}`}>
+        {parts}
+        {lineIndex < lines.length - 1 ? "\n" : ""}
+      </span>
     );
-  };
+  });
+}
+
+function CopyButton({
+  data,
+  size = "sm",
+}: {
+  data: unknown;
+  size?: "sm" | "icon";
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [data]);
+
+  if (size === "icon") {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0"
+        onClick={handleCopy}
+      >
+        {copied ? (
+          <Check className="h-4 w-4 text-emerald-500" />
+        ) : (
+          <Copy className="h-4 w-4 text-muted-foreground" />
+        )}
+      </Button>
+    );
+  }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-      {/* Tab bar */}
-      <div className="border-b border-slate-200 px-4">
-        <nav className="flex gap-1 -mb-px">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {tab.label}
-              {tab.badge !== undefined && tab.badge > 0 && (
-                <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${
-                  tab.id === "validation"
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-blue-100 text-blue-700"
-                }`}>
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
+    <Button
+      variant={copied ? "secondary" : "outline"}
+      size="sm"
+      onClick={handleCopy}
+      className={cn(
+        "gap-1.5 transition-colors",
+        copied && "bg-emerald-50 text-emerald-700 border-emerald-200"
+      )}
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5" />
+          Copied!
+        </>
+      ) : (
+        <>
+          <Copy className="h-3.5 w-3.5" />
+          Copy
+        </>
+      )}
+    </Button>
+  );
+}
 
-      {/* Tab content */}
-      <div className="p-4">
-        {result.error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {result.error}
-          </div>
+function CollapsibleJSON({
+  data,
+  label,
+  defaultOpen = false,
+}: {
+  data: unknown;
+  label: string;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  if (data === undefined || data === null) return null;
+
+  const jsonString = JSON.stringify(data, null, 2);
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="p-4 pb-0">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setIsOpen((prev) => !prev)}
+            className="flex items-center gap-2 text-sm font-semibold hover:text-foreground/80 transition-colors"
+          >
+            {isOpen ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+            {label}
+          </button>
+          <CopyButton data={data} size="icon" />
+        </div>
+      </CardHeader>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <CardContent className="p-4 pt-3">
+              <pre className="rounded-lg bg-slate-950 p-4 text-xs font-mono overflow-x-auto max-h-[500px] overflow-y-auto leading-relaxed">
+                {syntaxHighlight(jsonString)}
+              </pre>
+            </CardContent>
+          </motion.div>
         )}
+      </AnimatePresence>
+    </Card>
+  );
+}
 
-        {activeTab === "runtime" && result.appForgeConfig ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-600">
-                This is the executable config ready for AppForge runtime. Copy and paste it directly.
-              </p>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify(result.appForgeConfig, null, 2));
-                  alert("Copied to clipboard!");
-                }}
-                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Copy JSON
-              </button>
-            </div>
-            {renderJSON(result.appForgeConfig, "AppForge Runtime Config")}
-          </div>
-        ) : activeTab === "runtime" ? (
-          <div className="text-center py-8 text-slate-500 text-sm">
-            No runtime config generated
-          </div>
-        ) : null}
+const severityConfig = {
+  error: {
+    border: "border-l-red-500",
+    icon: AlertTriangle,
+    iconColor: "text-red-500",
+    badgeVariant: "destructive" as const,
+  },
+  warning: {
+    border: "border-l-amber-500",
+    icon: AlertCircle,
+    iconColor: "text-amber-500",
+    badgeVariant: "warning" as const,
+  },
+  info: {
+    border: "border-l-blue-500",
+    icon: Info,
+    iconColor: "text-blue-500",
+    badgeVariant: "info" as const,
+  },
+} as const;
 
-        {activeTab === "config" && result.appConfig ? (
-          <div className="space-y-3">
-            {renderJSON((result.appConfig as Record<string, unknown>).ui, "UI Configuration")}
-            {renderJSON((result.appConfig as Record<string, unknown>).api, "API Configuration")}
-            {renderJSON((result.appConfig as Record<string, unknown>).db, "Database Schema")}
-            {renderJSON((result.appConfig as Record<string, unknown>).auth, "Auth Configuration")}
-            {(result.appConfig as Record<string, unknown>).businessRules
-              ? renderJSON((result.appConfig as Record<string, unknown>).businessRules, "Business Rules")
-              : null}
-          </div>
-        ) : null}
+export function OutputViewer({ result }: Props) {
+  const validationCount = result.validationIssues.length;
+  const repairsCount = result.repairActions.length;
 
-        {activeTab === "intent" && result.intent ? renderJSON(result.intent, "Extracted Intent") : null}
+  const tabItems = [
+    { value: "runtime", label: "Runtime Config", icon: Play },
+    { value: "config", label: "Raw Config", icon: Code },
+    { value: "intent", label: "Intent", icon: FileSearch },
+    { value: "design", label: "Design", icon: Layers },
+    { value: "validation", label: "Validation", icon: ShieldCheck, count: validationCount },
+    { value: "repairs", label: "Repairs", icon: Wrench, count: repairsCount },
+  ];
 
-        {activeTab === "design" && result.design ? renderJSON(result.design, "System Design") : null}
+  return (
+    <Card className="overflow-hidden">
+      <Tabs defaultValue="runtime" className="w-full">
+        <div className="border-b px-2 pt-2">
+          <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0 flex-wrap">
+            {tabItems.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="gap-1.5 rounded-b-none border-b-2 border-transparent px-3 py-2.5 data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  {tab.count !== undefined && tab.count > 0 && (
+                    <Badge
+                      variant={tab.value === "validation" ? "warning" : "info"}
+                      className="ml-1 h-5 min-w-[20px] justify-center px-1.5 text-[10px]"
+                    >
+                      {tab.count}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </div>
 
-        {activeTab === "validation" && (
-          <div className="space-y-2">
-            {result.validationIssues.length === 0 ? (
-              <div className="text-center py-8 text-slate-500 text-sm">
-                No validation issues detected
+        <div className="p-4 sm:p-6">
+          {result.error && (
+            <Card className="mb-4 border-red-200 bg-red-50">
+              <CardContent className="flex items-start gap-3 p-4">
+                <AlertTriangle className="h-5 w-5 shrink-0 text-red-500 mt-0.5" />
+                <p className="text-sm text-red-800">{result.error}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Runtime Config */}
+          <TabsContent value="runtime">
+            {result.appForgeConfig ? (
+              <div className="space-y-4">
+                <Card>
+                  <CardContent className="flex items-center justify-between gap-4 p-4">
+                    <CardDescription className="text-sm">
+                      Executable config ready for AppForge runtime. Copy and use it directly.
+                    </CardDescription>
+                    <CopyButton data={result.appForgeConfig} />
+                  </CardContent>
+                </Card>
+                <div className="rounded-lg bg-slate-950 p-4 overflow-x-auto max-h-[600px] overflow-y-auto">
+                  <pre className="text-xs font-mono leading-relaxed">
+                    {syntaxHighlight(JSON.stringify(result.appForgeConfig, null, 2))}
+                  </pre>
+                </div>
               </div>
             ) : (
-              result.validationIssues.map((issue, i) => (
-                <div
-                  key={i}
-                  className={`p-3 rounded-lg border text-sm ${
-                    issue.severity === "error"
-                      ? "bg-red-50 border-red-200 text-red-800"
-                      : issue.severity === "warning"
-                        ? "bg-amber-50 border-amber-200 text-amber-800"
-                        : "bg-blue-50 border-blue-200 text-blue-800"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-white/50 uppercase">
-                      {issue.layer}
-                    </span>
-                    <span>{issue.message}</span>
-                  </div>
-                  {issue.path && (
-                    <div className="mt-1 text-xs opacity-75 font-mono">
-                      Path: {issue.path}
-                    </div>
-                  )}
-                  {issue.suggestion && (
-                    <div className="mt-1 text-xs opacity-75">
-                      Fix: {issue.suggestion}
-                    </div>
-                  )}
-                </div>
-              ))
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Play className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">No runtime config generated</p>
+              </div>
             )}
-          </div>
-        )}
+          </TabsContent>
 
-        {activeTab === "repairs" && (
-          <div className="space-y-2">
-            {result.repairActions.length === 0 ? (
-              <div className="text-center py-8 text-slate-500 text-sm">
-                No repairs were needed
+          {/* Raw Config */}
+          <TabsContent value="config">
+            {result.appConfig ? (
+              <div className="space-y-3">
+                <CollapsibleJSON
+                  data={(result.appConfig as Record<string, unknown>).ui}
+                  label="UI Configuration"
+                  defaultOpen
+                />
+                <CollapsibleJSON
+                  data={(result.appConfig as Record<string, unknown>).api}
+                  label="API Configuration"
+                />
+                <CollapsibleJSON
+                  data={(result.appConfig as Record<string, unknown>).db}
+                  label="Database Schema"
+                />
+                <CollapsibleJSON
+                  data={(result.appConfig as Record<string, unknown>).auth}
+                  label="Auth Configuration"
+                />
+                <CollapsibleJSON
+                  data={(result.appConfig as Record<string, unknown>).businessRules}
+                  label="Business Rules"
+                />
               </div>
             ) : (
-              result.repairActions.map((action, i) => (
-                <div
-                  key={i}
-                  className={`p-3 rounded-lg border text-sm ${
-                    action.applied
-                      ? "bg-green-50 border-green-200 text-green-800"
-                      : "bg-red-50 border-red-200 text-red-800"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-                      action.applied ? "bg-green-200" : "bg-red-200"
-                    }`}>
-                      {action.applied ? "APPLIED" : "FAILED"}
-                    </span>
-                    <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-white/50 uppercase">
-                      {action.layer}
-                    </span>
-                    <span className="text-xs font-mono opacity-75">{action.action}</span>
-                  </div>
-                  <p className="mt-1">{action.description}</p>
-                </div>
-              ))
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Code className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">No raw config available</p>
+              </div>
             )}
-          </div>
-        )}
-      </div>
-    </div>
+          </TabsContent>
+
+          {/* Intent */}
+          <TabsContent value="intent">
+            {result.intent ? (
+              <CollapsibleJSON
+                data={result.intent}
+                label="Extracted Intent"
+                defaultOpen
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <FileSearch className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">No intent data available</p>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Design */}
+          <TabsContent value="design">
+            {result.design ? (
+              <CollapsibleJSON
+                data={result.design}
+                label="System Design"
+                defaultOpen
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Layers className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">No design data available</p>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Validation */}
+          <TabsContent value="validation">
+            {validationCount === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <CheckCircle className="h-10 w-10 mb-3 text-emerald-400" />
+                <p className="text-sm font-medium text-foreground">
+                  No validation issues detected
+                </p>
+                <p className="text-xs mt-1">All checks passed successfully</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {result.validationIssues.map((issue, i) => {
+                  const config =
+                    severityConfig[issue.severity as keyof typeof severityConfig] ??
+                    severityConfig.info;
+                  const SeverityIcon = config.icon;
+                  return (
+                    <Card
+                      key={i}
+                      className={cn("border-l-4 overflow-hidden", config.border)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <SeverityIcon
+                            className={cn("h-5 w-5 shrink-0 mt-0.5", config.iconColor)}
+                          />
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant={config.badgeVariant} className="text-[10px] uppercase">
+                                {issue.layer}
+                              </Badge>
+                              <span className="text-sm text-foreground">
+                                {issue.message}
+                              </span>
+                            </div>
+                            {issue.path && (
+                              <p className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">
+                                {issue.path}
+                              </p>
+                            )}
+                            {issue.suggestion && (
+                              <p className="text-xs italic text-muted-foreground">
+                                {issue.suggestion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Repairs */}
+          <TabsContent value="repairs">
+            {repairsCount === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Wrench className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm font-medium text-foreground">
+                  No repairs were needed
+                </p>
+                <p className="text-xs mt-1">
+                  Configuration generated without requiring fixes
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {result.repairActions.map((repair, i) => (
+                  <Card
+                    key={i}
+                    className={cn(
+                      "border-l-4 overflow-hidden",
+                      repair.applied
+                        ? "border-l-emerald-500"
+                        : "border-l-red-500"
+                    )}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        {repair.applied ? (
+                          <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500 mt-0.5" />
+                        ) : (
+                          <XCircle className="h-5 w-5 shrink-0 text-red-500 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              variant={repair.applied ? "success" : "destructive"}
+                              className="text-[10px] uppercase"
+                            >
+                              {repair.action}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px] uppercase">
+                              {repair.layer}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-foreground">
+                            {repair.description}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </div>
+      </Tabs>
+    </Card>
   );
 }
