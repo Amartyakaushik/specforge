@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, ChevronDown, Loader2 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Zap, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -18,131 +17,151 @@ const MAX_CHARS = 2000;
 export function PromptInput({ onGenerate, isGenerating, examples }: Props) {
   const [prompt, setPrompt] = useState("");
   const [showExamples, setShowExamples] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (prompt.trim() && !isGenerating) {
+    if (prompt.trim() && !isGenerating && !isOverLimit) {
       onGenerate(prompt.trim());
     }
   };
 
   const charCount = prompt.length;
   const isOverLimit = charCount > MAX_CHARS;
+  const isEmpty = !prompt.trim();
+
+  const closeDropdown = useCallback(() => setShowExamples(false), []);
+
+  useEffect(() => {
+    if (!showExamples) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
+      ) {
+        closeDropdown();
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showExamples, closeDropdown]);
 
   return (
-    <Card className="border-slate-800 bg-slate-900/60 backdrop-blur-sm">
-      <CardContent className="p-6">
-        <form onSubmit={handleSubmit}>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            Describe the application you want to build
-          </label>
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder="Describe the application you want to build..."
+        rows={5}
+        className={cn(
+          "w-full px-4 py-3 rounded-lg resize-none transition-all duration-200",
+          "bg-slate-950/50 border border-slate-800 text-slate-100",
+          "placeholder:text-slate-500 placeholder:font-mono",
+          "focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500/40",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+          "text-sm leading-relaxed"
+        )}
+        disabled={isGenerating}
+      />
 
-          <div className="relative">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., Build a CRM with login, contacts, dashboard, role-based access, and premium plan with payments..."
+      <div className="flex items-center justify-between">
+        <div className="relative">
+          <Button
+            ref={triggerRef}
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowExamples((prev) => !prev)}
+            className="text-slate-400 hover:text-slate-200 gap-1.5 px-2"
+          >
+            <ChevronDown
               className={cn(
-                "w-full h-36 px-4 py-3 rounded-lg resize-none transition-all duration-200",
-                "bg-slate-950/60 border border-slate-700 text-slate-100 placeholder:text-slate-500",
-                "focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50",
-                "disabled:opacity-50 disabled:cursor-not-allowed"
+                "w-3.5 h-3.5 transition-transform duration-200",
+                showExamples && "rotate-180"
               )}
-              disabled={isGenerating}
-              maxLength={MAX_CHARS + 200}
             />
-            <span
-              className={cn(
-                "absolute bottom-3 right-3 text-xs tabular-nums",
-                isOverLimit ? "text-red-400" : "text-slate-600"
-              )}
-            >
-              {charCount}/{MAX_CHARS}
-            </span>
-          </div>
+            Try an example
+          </Button>
 
-          <div className="mt-4 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setShowExamples((prev) => !prev)}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-blue-400 transition-colors font-medium"
-            >
-              <ChevronDown
+          <AnimatePresence>
+            {showExamples && (
+              <motion.div
+                ref={dropdownRef}
+                initial={{ opacity: 0, y: 4, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
                 className={cn(
-                  "w-4 h-4 transition-transform duration-200",
-                  showExamples && "rotate-180"
+                  "absolute left-0 top-full mt-1.5 z-50",
+                  "w-[420px] max-h-[280px] overflow-y-auto",
+                  "rounded-lg border border-slate-800 bg-slate-900 shadow-xl shadow-black/40",
+                  "p-1"
                 )}
-              />
-              {showExamples ? "Hide examples" : "Show examples"}
-            </button>
+              >
+                {examples.map((ex, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setPrompt(ex);
+                      setShowExamples(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 rounded-md text-sm",
+                      "text-slate-300 hover:text-slate-100",
+                      "hover:bg-slate-800/80 transition-colors duration-100",
+                      "leading-snug"
+                    )}
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
-            <Button
-              type="submit"
-              size="lg"
-              disabled={!prompt.trim() || isGenerating || isOverLimit}
-              className={cn(
-                "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500",
-                "text-white shadow-lg shadow-blue-600/20 border-0",
-                "disabled:from-slate-700 disabled:to-slate-700 disabled:shadow-none"
-              )}
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="animate-pulse">Generating...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Generate Application
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
+        <div className="flex items-center gap-3">
+          <span
+            className={cn(
+              "text-xs tabular-nums select-none",
+              isOverLimit ? "text-red-400" : "text-slate-600"
+            )}
+          >
+            {charCount}/{MAX_CHARS}
+          </span>
 
-        <AnimatePresence>
-          {showExamples && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: "easeInOut" }}
-              className="overflow-hidden"
-            >
-              <div className="mt-5 border-t border-slate-800 pt-5">
-                <p className="text-xs text-slate-500 mb-3 font-medium uppercase tracking-wider">
-                  Example prompts
-                </p>
-                <div className="grid gap-2">
-                  {examples.map((ex, i) => (
-                    <motion.button
-                      key={i}
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, delay: i * 0.04 }}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.995 }}
-                      onClick={() => {
-                        setPrompt(ex);
-                        setShowExamples(false);
-                      }}
-                      className={cn(
-                        "w-full text-left px-4 py-3 rounded-lg transition-colors duration-150",
-                        "bg-slate-800/50 border border-slate-700/50",
-                        "text-sm text-slate-300 hover:text-blue-300",
-                        "hover:bg-slate-800 hover:border-blue-500/30"
-                      )}
-                    >
-                      {ex}
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </CardContent>
-    </Card>
+          <Button
+            type="submit"
+            disabled={isEmpty || isGenerating || isOverLimit}
+            className={cn(
+              "bg-gradient-to-r from-blue-600 to-violet-600",
+              "hover:from-blue-500 hover:to-violet-500",
+              "text-white border-0 shadow-lg shadow-blue-600/20",
+              "disabled:from-slate-700 disabled:to-slate-700 disabled:shadow-none",
+              "disabled:text-slate-500",
+              "h-9 px-4 text-sm font-medium"
+            )}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Compiling...
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5" />
+                Compile
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </form>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText,
@@ -9,14 +9,17 @@ import {
   Shield,
   Wrench,
   Rocket,
-  ChevronRight,
+  Zap,
+  ExternalLink,
+  Layers,
+  ShieldCheck,
 } from "lucide-react";
 import { PromptInput } from "@/components/prompt-input";
 import { PipelineStatus } from "@/components/pipeline-status";
 import { OutputViewer } from "@/components/output-viewer";
 import { MetricsPanel } from "@/components/metrics-panel";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -71,23 +74,40 @@ const EXAMPLE_PROMPTS = [
 ];
 
 const PIPELINE_STAGES = [
-  { key: "intent", label: "Intent", icon: FileText },
-  { key: "design", label: "Design", icon: Brain },
-  { key: "schema", label: "Schema", icon: Code },
-  { key: "validation", label: "Validate", icon: Shield },
-  { key: "repair", label: "Repair", icon: Wrench },
-  { key: "complete", label: "Deploy", icon: Rocket },
+  { key: "intent", label: "Intent Parsing", icon: FileText },
+  { key: "design", label: "Architecture Design", icon: Brain },
+  { key: "schema", label: "Schema Generation", icon: Code },
+  { key: "validation", label: "Cross-layer Validation", icon: Shield },
+  { key: "repair", label: "Auto-Repair", icon: Wrench },
+  { key: "complete", label: "Finalize", icon: Rocket },
 ];
+
+const staggerContainer = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.08 },
+  },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
+};
 
 export default function HomePage() {
   const [currentStage, setCurrentStage] = useState<PipelineStage>("idle");
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [stageTimings, setStageTimings] = useState<Record<string, number>>({});
+  const stageStartRef = useRef<number>(0);
+  const workspaceRef = useRef<HTMLElement>(null);
 
   const handleGenerate = useCallback(async (prompt: string) => {
     setIsGenerating(true);
     setResult(null);
     setCurrentStage("intent");
+    setStageTimings({});
+    stageStartRef.current = Date.now();
 
     try {
       const response = await fetch("/api/generate/stream", {
@@ -120,12 +140,25 @@ export default function HomePage() {
           const data = JSON.parse(line.slice(6));
 
           if (data.type === "stage") {
-            setCurrentStage(data.stage as PipelineStage);
+            const now = Date.now();
+            setCurrentStage((prev) => {
+              if (prev !== "idle" && prev !== "failed") {
+                const elapsed = now - stageStartRef.current;
+                setStageTimings((t) => ({ ...t, [prev]: elapsed }));
+              }
+              return data.stage as PipelineStage;
+            });
+            stageStartRef.current = now;
           } else if (data.type === "complete") {
+            const now = Date.now();
+            setCurrentStage((prev) => {
+              if (prev !== "idle" && prev !== "failed") {
+                const elapsed = now - stageStartRef.current;
+                setStageTimings((t) => ({ ...t, [prev]: elapsed }));
+              }
+              return data.result.status === "completed" ? "complete" : "failed";
+            });
             setResult(data.result);
-            setCurrentStage(
-              data.result.status === "completed" ? "complete" : "failed"
-            );
             if (data.result.status === "completed") {
               toast.success("Generation complete");
             } else {
@@ -147,117 +180,206 @@ export default function HomePage() {
   const stageIndex = PIPELINE_STAGES.findIndex((s) => s.key === currentStage);
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-transparent to-transparent" />
-        <div className="relative max-w-5xl mx-auto px-4 pt-16 pb-10 text-center">
+    <main className="min-h-screen bg-[#09090b] text-white antialiased">
+      {/* Dot grid background */}
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }}
+      />
+
+      {/* Subtle top glow */}
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] pointer-events-none bg-blue-500/[0.04] blur-[120px] rounded-full" />
+
+      {/* ---- Navigation ---- */}
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#09090b]/70 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-blue-400" />
+            <span className="font-bold text-[15px] tracking-tight text-white">
+              SpecForge
+            </span>
+          </div>
+          <div className="flex items-center gap-6">
+            <button
+              onClick={() =>
+                workspaceRef.current?.scrollIntoView({ behavior: "smooth" })
+              }
+              className="text-sm text-zinc-400 hover:text-white transition-colors hidden sm:block"
+            >
+              How it works
+            </button>
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-white transition-colors"
+            >
+              GitHub
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      {/* ---- Hero Section ---- */}
+      <section className="relative pt-32 pb-20 px-6">
+        <motion.div
+          className="max-w-3xl mx-auto text-center"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+        >
           <motion.h1
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className="text-5xl sm:text-6xl font-bold tracking-tight bg-gradient-to-r from-white via-blue-100 to-blue-300 bg-clip-text text-transparent"
+            variants={fadeUp}
+            className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.1]"
           >
-            SpecForge
+            <span className="bg-gradient-to-b from-white to-blue-400 bg-clip-text text-transparent">
+              Compile Applications
+            </span>
+            <br />
+            <span className="bg-gradient-to-b from-white to-blue-400 bg-clip-text text-transparent">
+              from Natural Language
+            </span>
           </motion.h1>
 
           <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
-            className="mt-4 text-lg text-slate-400 max-w-2xl mx-auto"
+            variants={fadeUp}
+            className="mt-6 text-base sm:text-lg text-zinc-400 max-w-2xl mx-auto leading-relaxed"
           >
-            Natural language to validated, executable application configurations
+            Multi-stage AI pipeline with schema validation, cross-layer
+            consistency checks, and auto-repair. Not a prompt wrapper — a
+            compiler.
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3, ease: "easeOut" }}
-            className="mt-5 flex items-center justify-center gap-2"
+            variants={fadeUp}
+            className="mt-8 flex items-center justify-center gap-3 flex-wrap"
           >
-            <Badge variant="info">Multi-Stage Pipeline</Badge>
-            <Badge variant="success">Schema Validated</Badge>
-            <Badge variant="warning">Auto-Repair</Badge>
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-sm text-zinc-300">
+              <Layers className="w-3.5 h-3.5 text-blue-400" />
+              6-Stage Pipeline
+            </div>
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-sm text-zinc-300">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+              7 Validators
+            </div>
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-sm text-zinc-300">
+              <Wrench className="w-3.5 h-3.5 text-blue-400" />
+              Auto-Repair Engine
+            </div>
           </motion.div>
-        </div>
+        </motion.div>
       </section>
 
-      {/* Architecture Flow */}
-      <motion.section
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.45, ease: "easeOut" }}
-        className="max-w-4xl mx-auto px-4 pb-10"
+      {/* ---- Workspace Section ---- */}
+      <section
+        ref={workspaceRef}
+        className="relative max-w-6xl mx-auto px-4 sm:px-6 pb-8"
       >
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur-sm">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-center gap-1 sm:gap-2 overflow-x-auto">
-              {PIPELINE_STAGES.map((stage, i) => {
-                const Icon = stage.icon;
-                const isActive = stage.key === currentStage;
-                const isPast = stageIndex > i;
-
-                return (
-                  <div key={stage.key} className="flex items-center gap-1 sm:gap-2">
-                    <div className="flex flex-col items-center gap-1.5">
-                      <div
-                        className={cn(
-                          "flex items-center justify-center w-10 h-10 rounded-lg border transition-all duration-300",
-                          isActive
-                            ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/25"
-                            : isPast
-                              ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-400"
-                              : "bg-slate-800 border-slate-700 text-slate-500"
-                        )}
-                      >
-                        <Icon className="w-5 h-5" />
-                      </div>
-                      <span
-                        className={cn(
-                          "text-[11px] font-medium tracking-wide",
-                          isActive
-                            ? "text-blue-400"
-                            : isPast
-                              ? "text-emerald-400"
-                              : "text-slate-600"
-                        )}
-                      >
-                        {stage.label}
-                      </span>
-                    </div>
-                    {i < PIPELINE_STAGES.length - 1 && (
-                      <ChevronRight
-                        className={cn(
-                          "w-4 h-4 mb-5 flex-shrink-0",
-                          isPast ? "text-emerald-500/60" : "text-slate-700"
-                        )}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.section>
-
-      {/* Main Content */}
-      <div className="max-w-5xl mx-auto px-4 pb-16 space-y-6">
-        {/* Prompt Input */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.55, ease: "easeOut" }}
+          transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
         >
-          <PromptInput
-            onGenerate={handleGenerate}
-            isGenerating={isGenerating}
-            examples={EXAMPLE_PROMPTS}
-          />
-        </motion.div>
+          <Card className="border-white/[0.08] bg-white/[0.02] backdrop-blur-sm overflow-hidden">
+            <div className="flex flex-col lg:flex-row">
+              {/* Left: Prompt Input (60%) */}
+              <div className="flex-1 lg:w-[60%] p-5 sm:p-6 border-b lg:border-b-0 lg:border-r border-white/[0.06]">
+                <PromptInput
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  examples={EXAMPLE_PROMPTS}
+                />
+              </div>
 
-        {/* Pipeline Status */}
+              {/* Right: Pipeline Visualization (40%) */}
+              <div className="lg:w-[40%] p-5 sm:p-6">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-4">
+                  Pipeline
+                </p>
+                <div className="space-y-1">
+                  {PIPELINE_STAGES.map((stage, i) => {
+                    const Icon = stage.icon;
+                    const isActive = stage.key === currentStage;
+                    const isPast = stageIndex > i;
+                    const isFailed =
+                      currentStage === "failed" &&
+                      i === stageIndex;
+                    const timing = stageTimings[stage.key];
+
+                    return (
+                      <div
+                        key={stage.key}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300",
+                          isActive && "bg-blue-500/[0.08]",
+                          isFailed && "bg-red-500/[0.08]"
+                        )}
+                      >
+                        {/* Status dot */}
+                        <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
+                          <div
+                            className={cn(
+                              "w-2 h-2 rounded-full transition-colors duration-300",
+                              isActive && "bg-blue-400",
+                              isPast && "bg-emerald-400",
+                              isFailed && "bg-red-400",
+                              !isActive && !isPast && !isFailed && "bg-zinc-700"
+                            )}
+                          />
+                          {isActive && !isFailed && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-4 h-4 rounded-full bg-blue-400/20 animate-ping" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Icon */}
+                        <Icon
+                          className={cn(
+                            "w-4 h-4 shrink-0 transition-colors duration-300",
+                            isActive && "text-blue-400",
+                            isPast && "text-emerald-400",
+                            isFailed && "text-red-400",
+                            !isActive && !isPast && !isFailed && "text-zinc-600"
+                          )}
+                        />
+
+                        {/* Label */}
+                        <span
+                          className={cn(
+                            "text-sm font-medium flex-1 transition-colors duration-300",
+                            isActive && "text-blue-300",
+                            isPast && "text-zinc-300",
+                            isFailed && "text-red-300",
+                            !isActive && !isPast && !isFailed && "text-zinc-600"
+                          )}
+                        >
+                          {stage.label}
+                        </span>
+
+                        {/* Timing */}
+                        {isPast && timing !== undefined && (
+                          <span className="text-xs tabular-nums text-zinc-500">
+                            {(timing / 1000).toFixed(1)}s
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </Card>
+        </motion.div>
+      </section>
+
+      {/* ---- Pipeline Status (existing component) ---- */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <AnimatePresence>
           {currentStage !== "idle" && (
             <motion.div
@@ -265,42 +387,45 @@ export default function HomePage() {
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.35, ease: "easeInOut" }}
+              className="mb-6"
             >
               <PipelineStatus currentStage={currentStage} />
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
 
-        {/* Results */}
+      {/* ---- Results Section ---- */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-24">
         <AnimatePresence>
           {result && (
             <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
+              variants={staggerContainer}
+              initial="hidden"
+              animate="visible"
               exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.45, ease: "easeOut" }}
               className="space-y-6"
             >
               {result.metrics && (
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: 0.1 }}
-                >
+                <motion.div variants={fadeUp}>
                   <MetricsPanel metrics={result.metrics} />
                 </motion.div>
               )}
-              <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.2 }}
-              >
+              <motion.div variants={fadeUp}>
                 <OutputViewer result={result} />
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      {/* ---- Footer ---- */}
+      <footer className="border-t border-white/[0.06] py-8">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-500">
+          <span>Built as a systems engineering exercise</span>
+          <span>Powered by Gemini API</span>
+        </div>
+      </footer>
     </main>
   );
 }
